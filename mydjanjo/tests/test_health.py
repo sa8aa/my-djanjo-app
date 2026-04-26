@@ -1,4 +1,6 @@
 from django.test import TestCase, Client
+
+
 class HealthCheckTest(TestCase):
     def test_health_endpoint(self):
         c = Client()
