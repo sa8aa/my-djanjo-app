@@ -15,7 +15,7 @@ pipeline {
 
         stage('Checkout') {
             steps {
-                git branch: 'main',
+                git branch: 'feature/jenkins-pipeline',
                     url: 'https://github.com/sa8aa/my-djanjo-app.git'
             }
             post {
