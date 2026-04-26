@@ -38,6 +38,21 @@ pipeline {
                 failure { echo "Tests failed — pipeline aborted" }
             }
         }
+          stage('Build Image') {
+            steps {
+                sh """
+                    docker build \
+                        -t ${DOCKER_IMAGE}:${IMAGE_TAG} \
+                        -t ${DOCKER_IMAGE}:latest \
+                        .
+                """
+            }
+            post {
+                success { echo "Image built : ${DOCKER_IMAGE}:${IMAGE_TAG}" }
+                failure { echo "Docker build failed" }
+            }
+        }
+
 
     }
 
