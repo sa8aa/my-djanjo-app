@@ -29,6 +29,15 @@ pipeline {
                 }
             }
         }
+        stage('Tests') {
+            steps {
+                sh 'chmod +x scripts/test.sh && bash scripts/test.sh'
+            }
+            post {
+                success { echo "Tests passed" }
+                failure { echo "Tests failed — pipeline aborted" }
+            }
+        }
 
     }
 
