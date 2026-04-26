@@ -7,8 +7,7 @@ echo "================================================"
 # Create virtual environment
 python3 -m venv /tmp/venv
 
-# Use venv binaries directly (no activation needed)
-PYTHON=/tmp/venv/bin/python
+# Use venv binaries directly
 PIP=/tmp/venv/bin/pip
 FLAKE8=/tmp/venv/bin/flake8
 PYTEST=/tmp/venv/bin/pytest
@@ -20,11 +19,11 @@ $PIP install flake8 pytest pytest-django --quiet
 
 # Linting
 echo "[2/3] Running flake8..."
-$FLAKE8 . --max-line-length=120 --exclude=migrations,venv --statistics || true
+$FLAKE8 mydjanjo/ --max-line-length=120 --exclude=migrations --statistics || true
 
 # Tests
 echo "[3/3] Running pytest..."
-$PYTEST app/tests/ -v --tb=short
+$PYTEST mydjanjo/tests/ -v --tb=short
 
 echo "================================================"
 echo " All tests passed."
