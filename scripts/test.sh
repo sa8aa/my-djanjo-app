@@ -4,23 +4,27 @@ echo "================================================"
 echo " Running tests..."
 echo "================================================"
 
-# Create virtual environment if it doesn't exist
+# Create virtual environment
 python3 -m venv /tmp/venv
 
-# Activate it
-source /tmp/venv/bin/activate
+# Use venv binaries directly (no activation needed)
+PYTHON=/tmp/venv/bin/python
+PIP=/tmp/venv/bin/pip
+FLAKE8=/tmp/venv/bin/flake8
+PYTEST=/tmp/venv/bin/pytest
 
-# Install dependencies inside the venv
+# Install dependencies
 echo "[1/3] Installing dependencies..."
-pip install -r requirements.txt --quiet
+$PIP install -r requirements.txt --quiet
+$PIP install flake8 pytest pytest-django --quiet
 
 # Linting
 echo "[2/3] Running flake8..."
-flake8 . --max-line-length=120 --exclude=migrations --statistics || true
+$FLAKE8 . --max-line-length=120 --exclude=migrations,venv --statistics || true
 
 # Tests
 echo "[3/3] Running pytest..."
-pytest app/tests/ -v --tb=short
+$PYTEST app/tests/ -v --tb=short
 
 echo "================================================"
 echo " All tests passed."
