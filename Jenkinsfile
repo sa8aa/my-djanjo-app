@@ -85,6 +85,28 @@ pipeline {
                 docker image prune -f || true
             """
         }
+        stage('Push ECR') {
+            steps {
+                withCredentials([usernamePassword(
+                    credentialsId: 'aws-credentials',
+                    usernameVariable: 'AWS_ACCESS_KEY_ID',
+                    passwordVariable: 'AWS_SECRET_ACCESS_KEY'
+                )]) {
+
+                    sh """
+                    aws ecr get-login-password --region ${AWS_REGION} | \
+                    docker login --username AWS \
+                    --password-stdin ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
+
+                    docker tag ${DOCKER_IMAGE}:${IMAGE_TAG} ${ECR_REPO}:${IMAGE_TAG}
+
+                    docker push ${ECR_REPO}:${IMAGE_TAG}
+
+                    echo "Image pushed to ECR : ${ECR_REPO}:${IMAGE_TAG}"
+                    """
+        }
+    }
+}
         success { echo "Pipeline passed" }
         failure { echo "Pipeline failed — check logs above" }
     }
