@@ -22,13 +22,14 @@ pipeline {
                 success {
                     script {
                         env.IMAGE_TAG = "v${BUILD_NUMBER}-${GIT_COMMIT.take(7)}"
-                        echo "Checkout successful"
-                        echo "Commit  : ${GIT_COMMIT}"
-                        echo "Image tag: ${env.IMAGE_TAG}"
+                        echo "Checkout OK"
+                        echo "Commit    : ${GIT_COMMIT}"
+                        echo "Image tag : ${env.IMAGE_TAG}"
                     }
                 }
             }
         }
+
         stage('Tests') {
             steps {
                 sh 'chmod +x scripts/test.sh && bash scripts/test.sh'
@@ -38,7 +39,8 @@ pipeline {
                 failure { echo "Tests failed — pipeline aborted" }
             }
         }
-          stage('Build Image') {
+
+        stage('Build Image') {
             steps {
                 sh """
                     docker build \
@@ -53,12 +55,37 @@ pipeline {
             }
         }
 
+        stage('Push DockerHub') {
+            steps {
+                withCredentials([usernamePassword(
+                    credentialsId: 'dockerhub-credentials',
+                    usernameVariable: 'U',
+                    passwordVariable: 'P'
+                )]) {
+                    sh """
+                        echo \$P | docker login -u \$U --password-stdin
+                        docker push ${DOCKER_IMAGE}:${IMAGE_TAG}
+                        docker push ${DOCKER_IMAGE}:latest
+                        docker logout
+                    """
+                }
+            }
+            post {
+                success { echo "Image pushed to DockerHub : ${DOCKER_IMAGE}:${IMAGE_TAG}" }
+                failure { echo "DockerHub push failed" }
+            }
+        }
 
     }
 
     post {
+        always {
+            sh """
+                docker rmi ${DOCKER_IMAGE}:${IMAGE_TAG} || true
+                docker image prune -f || true
+            """
+        }
         success { echo "Pipeline passed" }
         failure { echo "Pipeline failed — check logs above" }
     }
 }
-
