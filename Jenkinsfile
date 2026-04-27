@@ -58,7 +58,7 @@ pipeline {
         stage('Push DockerHub') {
             steps {
                 withCredentials([usernamePassword(
-                    credentialsId: 'dockerhub-credentials',
+                    credentialsId: 'jenkins_djanjo_app',
                     usernameVariable: 'U',
                     passwordVariable: 'P'
                 )]) {
