@@ -2,7 +2,7 @@ pipeline {
     agent any
 
     environment {
-        DOCKER_IMAGE   = "sa8aa/my-djanjo-app"
+        DOCKER_IMAGE   = "samarbenromdhane/my-djanjo-app"
         AWS_REGION     = "us-east-1"
         AWS_ACCOUNT_ID = "284208999443"
         ECR_REPO       = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/my-djanjo-app"
