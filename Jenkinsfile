@@ -92,19 +92,24 @@ pipeline {
                     usernameVariable: 'AWS_ACCESS_KEY_ID',
                     passwordVariable: 'AWS_SECRET_ACCESS_KEY'
                 )]) {
-
                     sh """
-                    aws ecr get-login-password --region ${AWS_REGION} | \
-                    docker login --username AWS \
-                    --password-stdin ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
+                        aws ecr get-login-password --region ${AWS_REGION} | \
+                        docker login --username AWS \
+                        --password-stdin ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
 
-                    docker tag ${DOCKER_IMAGE}:${IMAGE_TAG} ${ECR_REPO}:${IMAGE_TAG}
+                        docker tag ${DOCKER_IMAGE}:${IMAGE_TAG} ${ECR_REPO}:${IMAGE_TAG}
+                        docker tag ${DOCKER_IMAGE}:latest ${ECR_REPO}:latest
 
-                    docker push ${ECR_REPO}:${IMAGE_TAG}
+                        docker push ${ECR_REPO}:${IMAGE_TAG}
+                        docker push ${ECR_REPO}:latest
 
-                    echo "Image pushed to ECR : ${ECR_REPO}:${IMAGE_TAG}"
-                    """
+                        echo "Image pushed to ECR : ${ECR_REPO}:${IMAGE_TAG}"
+                        """
         }
+    }
+    post {
+        success { echo "ECR push successful : ${ECR_REPO}:${IMAGE_TAG}" }
+        failure { echo "ECR push failed" }
     }
 }
         success { echo "Pipeline passed" }
