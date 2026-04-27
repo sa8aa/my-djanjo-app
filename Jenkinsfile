@@ -22,9 +22,9 @@ pipeline {
                 success {
                     script {
                         env.IMAGE_TAG = "v${BUILD_NUMBER}-${GIT_COMMIT.take(7)}"
-                        echo "Checkout OK"
-                        echo "Commit    : ${GIT_COMMIT}"
-                        echo "Image tag : ${env.IMAGE_TAG}"
+                        echo "✅ Checkout OK"
+                        echo "📌 Commit    : ${GIT_COMMIT}"
+                        echo "🏷️  Image tag : ${env.IMAGE_TAG}"
                     }
                 }
             }
@@ -35,8 +35,8 @@ pipeline {
                 sh 'chmod +x scripts/test.sh && bash scripts/test.sh'
             }
             post {
-                success { echo "Tests passed" }
-                failure { echo "Tests failed — pipeline aborted" }
+                success { echo "✅ Tests passed" }
+                failure { echo "❌ Tests failed — pipeline aborted" }
             }
         }
 
@@ -50,8 +50,8 @@ pipeline {
                 """
             }
             post {
-                success { echo "Image built : ${DOCKER_IMAGE}:${IMAGE_TAG}" }
-                failure { echo "Docker build failed" }
+                success { echo "✅ Image built : ${DOCKER_IMAGE}:${IMAGE_TAG}" }
+                failure { echo "❌ Docker build failed" }
             }
         }
 
@@ -71,8 +71,44 @@ pipeline {
                 }
             }
             post {
-                success { echo "Image pushed to DockerHub : ${DOCKER_IMAGE}:${IMAGE_TAG}" }
-                failure { echo "DockerHub push failed" }
+                success { echo "✅ Image pushed to DockerHub : ${DOCKER_IMAGE}:${IMAGE_TAG}" }
+                failure { echo "❌ DockerHub push failed" }
+            }
+        }
+
+        stage('Push ECR') {
+            steps {
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: 'aws-credentials',
+                        usernameVariable: 'AWS_ACCESS_KEY_ID',
+                        passwordVariable: 'AWS_SECRET_ACCESS_KEY'
+                    ),
+                    string(
+                        credentialsId: 'aws-session-token',
+                        variable: 'AWS_SESSION_TOKEN'
+                    )
+                ]) {
+                    sh """
+                        export AWS_SESSION_TOKEN=\${AWS_SESSION_TOKEN}
+
+                        aws ecr get-login-password --region ${AWS_REGION} | \
+                            docker login --username AWS \
+                            --password-stdin ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
+
+                        docker tag ${DOCKER_IMAGE}:${IMAGE_TAG} ${ECR_REPO}:${IMAGE_TAG}
+                        docker tag ${DOCKER_IMAGE}:latest ${ECR_REPO}:latest
+
+                        docker push ${ECR_REPO}:${IMAGE_TAG}
+                        docker push ${ECR_REPO}:latest
+
+                        echo "✅ Image pushed to ECR : ${ECR_REPO}:${IMAGE_TAG}"
+                    """
+                }
+            }
+            post {
+                success { echo "✅ ECR push successful : ${ECR_REPO}:${IMAGE_TAG}" }
+                failure { echo "❌ ECR push failed" }
             }
         }
 
@@ -82,37 +118,11 @@ pipeline {
         always {
             sh """
                 docker rmi ${DOCKER_IMAGE}:${IMAGE_TAG} || true
-                docker image prune -f || true
+                docker rmi ${ECR_REPO}:${IMAGE_TAG}     || true
+                docker image prune -f                   || true
             """
         }
-        stage('Push ECR') {
-            steps {
-                withCredentials([usernamePassword(
-                    credentialsId: 'aws-credentials',
-                    usernameVariable: 'AWS_ACCESS_KEY_ID',
-                    passwordVariable: 'AWS_SECRET_ACCESS_KEY'
-                )]) {
-                    sh """
-                        aws ecr get-login-password --region ${AWS_REGION} | \
-                        docker login --username AWS \
-                        --password-stdin ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
-
-                        docker tag ${DOCKER_IMAGE}:${IMAGE_TAG} ${ECR_REPO}:${IMAGE_TAG}
-                        docker tag ${DOCKER_IMAGE}:latest ${ECR_REPO}:latest
-
-                        docker push ${ECR_REPO}:${IMAGE_TAG}
-                        docker push ${ECR_REPO}:latest
-
-                        echo "Image pushed to ECR : ${ECR_REPO}:${IMAGE_TAG}"
-                        """
-        }
-    }
-    post {
-        success { echo "ECR push successful : ${ECR_REPO}:${IMAGE_TAG}" }
-        failure { echo "ECR push failed" }
-    }
-}
-        success { echo "Pipeline passed" }
-        failure { echo "Pipeline failed — check logs above" }
+        success { echo "✅ Pipeline passed" }
+        failure { echo "❌ Pipeline failed — check logs above" }
     }
 }
