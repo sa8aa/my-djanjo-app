@@ -1,0 +1,88 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: POC — EC2 + k3s (lightweight Kubernetes)
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: my-djanjo-app
+
+  InstanceType:
+    Type: String
+    Default: t3.medium
+
+  ImageId:
+    Type: String
+    Default: ami-0d05471b100e9083f
+
+  KeyName:
+    Type: String
+    Description: Your AWS Academy Key Pair name 
+
+Resources:
+
+  EC2SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow SSH, HTTP and k3s
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 8000
+          ToPort: 8000
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 6443
+          ToPort: 6443
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 30000
+          ToPort: 32767
+          CidrIp: 0.0.0.0/0
+
+  EC2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !Ref InstanceType
+      ImageId: !Ref ImageId
+      KeyName: !Ref KeyName
+      SecurityGroups:
+        - !Ref EC2SecurityGroup
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-k3s-server"
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          yum update -y
+
+          # Install k3s
+          curl -sfL https://get.k3s.io | sh -
+
+          # Wait for k3s to be ready
+          sleep 30
+
+          # Make kubeconfig accessible
+          chmod 644 /etc/rancher/k3s/k3s.yaml
+
+          echo "k3s setup complete" > /tmp/k3s-ready
+
+Outputs:
+  InstancePublicIP:
+    Value: !GetAtt EC2Instance.PublicIp
+    Description: Public IP of the k3s server
+    Export:
+      Name: K3sPublicIP
+
+  InstanceId:
+    Value: !Ref EC2Instance
+    Description: EC2 Instance ID
+    Export:
+      Name: K3sInstanceId
+
