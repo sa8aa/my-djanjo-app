@@ -7,8 +7,8 @@ pipeline {
         AWS_ACCOUNT_ID = "284208999443"
         ECR_REPO       = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/my-djanjo-app"
         KUBE_CONFIG    = "/var/jenkins_home/.kube/config"
-        TF_DIR         = "terraform"
         ECR_KEEP       = "5"
+        KEY_NAME       = "vockey"
     }
 
     stages {
@@ -109,6 +109,75 @@ pipeline {
             post {
                 success { echo "✅ ECR push successful : ${ECR_REPO}:${IMAGE_TAG}" }
                 failure { echo "❌ ECR push failed" }
+            }
+        }
+
+        stage('Provision Infra') {
+            steps {
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: 'aws-credentials',
+                        usernameVariable: 'AWS_ACCESS_KEY_ID',
+                        passwordVariable: 'AWS_SECRET_ACCESS_KEY'
+                    ),
+                    string(
+                        credentialsId: 'aws-session-token',
+                        variable: 'AWS_SESSION_TOKEN'
+                    )
+                ]) {
+                    sh """
+                        export AWS_SESSION_TOKEN=\${AWS_SESSION_TOKEN}
+
+                        # Check if stack already exists
+                        STACK_STATUS=\$(aws cloudformation describe-stacks \
+                            --stack-name my-djanjo-app-infra \
+                            --region ${AWS_REGION} \
+                            --query 'Stacks[0].StackStatus' \
+                            --output text 2>/dev/null || echo "DOES_NOT_EXIST")
+
+                        echo "Stack status: \$STACK_STATUS"
+
+                        if [ "\$STACK_STATUS" = "DOES_NOT_EXIST" ]; then
+                            echo "Creating stack..."
+                            aws cloudformation create-stack \
+                                --stack-name my-djanjo-app-infra \
+                                --template-body file://cloudformation/infra-stack.yaml \
+                                --parameters \
+                                    ParameterKey=ProjectName,ParameterValue=my-djanjo-app \
+                                    ParameterKey=KeyName,ParameterValue=${KEY_NAME} \
+                                --region ${AWS_REGION}
+
+                            echo "Waiting for stack creation (~3 min)..."
+                            aws cloudformation wait stack-create-complete \
+                                --stack-name my-djanjo-app-infra \
+                                --region ${AWS_REGION}
+
+                        elif [ "\$STACK_STATUS" = "CREATE_COMPLETE" ] || \
+                             [ "\$STACK_STATUS" = "UPDATE_COMPLETE" ]; then
+                            echo "Stack already exists — skipping creation"
+
+                        else
+                            echo "Stack in unexpected status: \$STACK_STATUS — check AWS Console"
+                            exit 1
+                        fi
+
+                        # Get EC2 public IP
+                        EC2_IP=\$(aws cloudformation describe-stacks \
+                            --stack-name my-djanjo-app-infra \
+                            --query 'Stacks[0].Outputs[?OutputKey==`InstancePublicIP`].OutputValue' \
+                            --output text \
+                            --region ${AWS_REGION})
+
+                        echo "✅ EC2 + k3s ready at : \$EC2_IP"
+
+                        # Save IP for Deploy stage
+                        echo \$EC2_IP > /tmp/ec2-ip.txt
+                    """
+                }
+            }
+            post {
+                success { echo "✅ Infrastructure provisioned successfully" }
+                failure { echo "❌ CloudFormation failed — check AWS Console" }
             }
         }
 
