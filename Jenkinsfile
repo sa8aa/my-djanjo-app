@@ -8,7 +8,7 @@ pipeline {
         // AWS / ECR
         AWS_REGION     = 'us-east-1'                          // ← change to your region
         AWS_ACCOUNT_ID = '271744664756'                       // ← change to your account ID
-        ECR_REPO       = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/mydjango"
+        ECR_REPO       = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/my-djanjo-app"
         IMAGE_TAG      = "${BUILD_NUMBER}"
     }
 
