@@ -60,16 +60,25 @@ Resources:
       UserData:
         Fn::Base64: !Sub |
           #!/bin/bash
+          set -e
+
+          # Update system
           yum update -y
 
-          # Install k3s
-          curl -sfL https://get.k3s.io | sh -
+          # Install k3s with retry
+          for i in 1 2 3; do
+            curl -sfL https://get.k3s.io | sh - && break
+            echo "k3s install attempt $i failed, retrying..."
+            sleep 10
+          done
 
-          # Wait for k3s to be ready
-          sleep 30
+          # Wait for k3s to be fully ready
+          timeout 120 bash -c 'until sudo kubectl get nodes 2>/dev/null | grep -q Ready; do sleep 5; done'
 
-          # Make kubeconfig accessible
+          # Make kubeconfig accessible to ec2-user
           chmod 644 /etc/rancher/k3s/k3s.yaml
+          cp /etc/rancher/k3s/k3s.yaml /home/ec2-user/k3s.yaml
+          chown ec2-user:ec2-user /home/ec2-user/k3s.yaml
 
           echo "k3s setup complete" > /tmp/k3s-ready
 
