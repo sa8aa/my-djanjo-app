@@ -123,12 +123,16 @@ pipeline {
                     string(
                         credentialsId: 'aws-session-token',
                         variable: 'AWS_SESSION_TOKEN'
+                    ),
+                    sshUserPrivateKey(
+                        credentialsId: 'ec2-ssh-key',
+                        keyFileVariable: 'SSH_KEY'
                     )
                 ]) {
                     sh """
                         export AWS_SESSION_TOKEN=\${AWS_SESSION_TOKEN}
 
-                        # Check if stack already exists
+                        # ── Check if stack already exists ──────────────────
                         STACK_STATUS=\$(aws cloudformation describe-stacks \
                             --stack-name my-djanjo-app-infra \
                             --region ${AWS_REGION} \
@@ -147,7 +151,7 @@ pipeline {
                                     ParameterKey=KeyName,ParameterValue=${KEY_NAME} \
                                 --region ${AWS_REGION}
 
-                            echo "Waiting for stack creation (~3 min)..."
+                            echo "Waiting for stack creation..."
                             aws cloudformation wait stack-create-complete \
                                 --stack-name my-djanjo-app-infra \
                                 --region ${AWS_REGION}
@@ -157,27 +161,52 @@ pipeline {
                             echo "Stack already exists — skipping creation"
 
                         else
-                            echo "Stack in unexpected status: \$STACK_STATUS — check AWS Console"
+                            echo "Stack in unexpected status: \$STACK_STATUS"
                             exit 1
                         fi
 
-                        # Get EC2 public IP
+                        # ── Get EC2 public IP ──────────────────────────────
                         EC2_IP=\$(aws cloudformation describe-stacks \
                             --stack-name my-djanjo-app-infra \
                             --query 'Stacks[0].Outputs[?OutputKey==`InstancePublicIP`].OutputValue' \
                             --output text \
                             --region ${AWS_REGION})
 
-                        echo "✅ EC2 + k3s ready at : \$EC2_IP"
-
-                        # Save IP for Deploy stage
+                        echo "EC2 IP: \$EC2_IP"
                         echo \$EC2_IP > /tmp/ec2-ip.txt
+
+                        # ── Wait for k3s to be ready (max 5 min) ──────────
+                        echo "Waiting for k3s to be ready..."
+                        chmod 400 \${SSH_KEY}
+
+                        for i in \$(seq 1 30); do
+                            STATUS=\$(ssh -i \${SSH_KEY} \
+                                -o StrictHostKeyChecking=no \
+                                -o ConnectTimeout=10 \
+                                ec2-user@\$EC2_IP \
+                                "sudo kubectl get nodes 2>/dev/null | grep Ready || echo NOT_READY")
+
+                            if echo "\$STATUS" | grep -q "Ready"; then
+                                echo "✅ k3s is ready : \$STATUS"
+                                break
+                            fi
+
+                            echo "Attempt \$i/30 — k3s not ready yet, waiting 10s..."
+                            sleep 10
+
+                            if [ \$i -eq 30 ]; then
+                                echo "❌ k3s did not become ready in time"
+                                exit 1
+                            fi
+                        done
+
+                        echo "✅ Infrastructure provisioned and k3s ready at : \$EC2_IP"
                     """
                 }
             }
             post {
                 success { echo "✅ Infrastructure provisioned successfully" }
-                failure { echo "❌ CloudFormation failed — check AWS Console" }
+                failure { echo "❌ CloudFormation or k3s setup failed" }
             }
         }
 
