@@ -25,8 +25,8 @@ pipeline {
                 sh '''
                     set -e
                     python3 -m venv venv
-                    venv/bin/python -m pip install --upgrade pip
-                    venv/bin/python -m pip install -r requirements.txt
+                    venv/bin/python -m pip install --upgrade pip --quiet
+                    venv/bin/python -m pip install -r requirements.txt --quiet
                 '''
             }
         }
@@ -40,24 +40,7 @@ pipeline {
             }
         }
 
-        stage('Build Docker Image') {
-            steps {
-                sh 'docker build -t $IMAGE_NAME:$IMAGE_TAG .'
-            }
-        }
-
-        stage('Push to DockerHub') {
-            steps {
-                sh '''
-                    echo $DOCKERHUB_CREDENTIALS_PSW | docker login -u $DOCKERHUB_CREDENTIALS_USR --password-stdin
-                    docker push $IMAGE_NAME:$IMAGE_TAG
-                    docker tag  $IMAGE_NAME:$IMAGE_TAG $IMAGE_NAME:latest
-                    docker push $IMAGE_NAME:latest
-                '''
-            }
-        }
-
-        stage('Push to ECR') {
+        stage('Build & Push Images') {       // ← merged into one stage
             steps {
                 withCredentials([
                     usernamePassword(
@@ -75,6 +58,17 @@ pipeline {
                         export AWS_SECRET_ACCESS_KEY=\${AWS_SECRET_ACCESS_KEY}
                         export AWS_SESSION_TOKEN=\${AWS_SESSION_TOKEN}
 
+                        # ── Build once ────────────────────────────────────────
+                        docker build -t ${IMAGE_NAME}:${IMAGE_TAG} .
+
+                        # ── Push to DockerHub ─────────────────────────────────
+                        echo \$DOCKERHUB_CREDENTIALS_PSW | docker login \
+                            -u \$DOCKERHUB_CREDENTIALS_USR --password-stdin
+                        docker tag ${IMAGE_NAME}:${IMAGE_TAG} ${IMAGE_NAME}:latest
+                        docker push ${IMAGE_NAME}:${IMAGE_TAG}
+                        docker push ${IMAGE_NAME}:latest
+
+                        # ── Create ECR repo if needed ─────────────────────────
                         aws ecr describe-repositories \
                             --repository-names my-djanjo-app \
                             --region ${AWS_REGION} 2>/dev/null || \
@@ -82,6 +76,7 @@ pipeline {
                             --repository-name my-djanjo-app \
                             --region ${AWS_REGION}
 
+                        # ── Push to ECR ───────────────────────────────────────
                         AWS_PASS=\$(aws ecr get-login-password --region ${AWS_REGION})
                         echo "\$AWS_PASS" | docker login \
                             --username AWS \
@@ -92,13 +87,13 @@ pipeline {
                         docker push ${ECR_REPO}:${IMAGE_TAG}
                         docker push ${ECR_REPO}:latest
 
-                        echo "✅ Image pushed to ECR: ${ECR_REPO}:${IMAGE_TAG}"
+                        echo "✅ Images pushed to DockerHub and ECR"
                     """
                 }
             }
             post {
-                success { echo "✅ ECR push successful: ${ECR_REPO}:${IMAGE_TAG}" }
-                failure { echo "❌ ECR push failed" }
+                success { echo "✅ Build and push successful" }
+                failure { echo "❌ Build or push failed" }
             }
         }
 
@@ -143,7 +138,6 @@ pipeline {
                                     ParameterKey=KeyName,ParameterValue=${KEY_NAME} \
                                 --region ${AWS_REGION}
 
-                            echo "Waiting for stack creation..."
                             aws cloudformation wait stack-create-complete \
                                 --stack-name my-djanjo-app-infra \
                                 --region ${AWS_REGION}
@@ -166,7 +160,6 @@ pipeline {
                         echo "EC2 IP: \$EC2_IP"
                         echo \$EC2_IP > /tmp/ec2-ip.txt
 
-                        echo "Waiting for k3s to be ready..."
                         chmod 400 \${SSH_KEY}
 
                         for i in \$(seq 1 30); do
@@ -181,7 +174,7 @@ pipeline {
                                 break
                             fi
 
-                            echo "Attempt \$i/30 — k3s not ready yet, waiting 10s..."
+                            echo "Attempt \$i/30 — not ready yet, waiting 10s..."
                             sleep 10
 
                             if [ \$i -eq 30 ]; then
@@ -190,7 +183,7 @@ pipeline {
                             fi
                         done
 
-                        echo "✅ Infrastructure provisioned and k3s ready at: \$EC2_IP"
+                        echo "✅ Infra ready at: \$EC2_IP"
                     """
                 }
             }
@@ -223,46 +216,35 @@ pipeline {
                         export AWS_SESSION_TOKEN=\${AWS_SESSION_TOKEN}
 
                         EC2_IP=\$(cat /tmp/ec2-ip.txt)
-
-                        # Get ECR password and configure k3s registry
                         ECR_PASSWORD=\$(aws ecr get-login-password --region ${AWS_REGION})
 
-                        # Write registries.yaml on the EC2 without heredoc
+                        # Configure k3s ECR registry auth
                         ssh -i \${SSH_KEY} -o StrictHostKeyChecking=no ec2-user@\$EC2_IP \
                             "sudo mkdir -p /etc/rancher/k3s"
 
                         echo "mirrors:" | ssh -i \${SSH_KEY} -o StrictHostKeyChecking=no ec2-user@\$EC2_IP \
                             "sudo tee /etc/rancher/k3s/registries.yaml > /dev/null"
-
                         echo "  ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com:" | ssh -i \${SSH_KEY} -o StrictHostKeyChecking=no ec2-user@\$EC2_IP \
                             "sudo tee -a /etc/rancher/k3s/registries.yaml > /dev/null"
-
                         echo "    endpoint:" | ssh -i \${SSH_KEY} -o StrictHostKeyChecking=no ec2-user@\$EC2_IP \
                             "sudo tee -a /etc/rancher/k3s/registries.yaml > /dev/null"
-
                         echo "      - https://${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com" | ssh -i \${SSH_KEY} -o StrictHostKeyChecking=no ec2-user@\$EC2_IP \
                             "sudo tee -a /etc/rancher/k3s/registries.yaml > /dev/null"
-
                         echo "configs:" | ssh -i \${SSH_KEY} -o StrictHostKeyChecking=no ec2-user@\$EC2_IP \
                             "sudo tee -a /etc/rancher/k3s/registries.yaml > /dev/null"
-
                         echo "  ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com:" | ssh -i \${SSH_KEY} -o StrictHostKeyChecking=no ec2-user@\$EC2_IP \
                             "sudo tee -a /etc/rancher/k3s/registries.yaml > /dev/null"
-
                         echo "    auth:" | ssh -i \${SSH_KEY} -o StrictHostKeyChecking=no ec2-user@\$EC2_IP \
                             "sudo tee -a /etc/rancher/k3s/registries.yaml > /dev/null"
-
                         echo "      username: AWS" | ssh -i \${SSH_KEY} -o StrictHostKeyChecking=no ec2-user@\$EC2_IP \
                             "sudo tee -a /etc/rancher/k3s/registries.yaml > /dev/null"
-
                         echo "      password: \$ECR_PASSWORD" | ssh -i \${SSH_KEY} -o StrictHostKeyChecking=no ec2-user@\$EC2_IP \
                             "sudo tee -a /etc/rancher/k3s/registries.yaml > /dev/null"
 
-                        # Restart k3s to apply registry config
+                        # Restart k3s and deploy
                         ssh -i \${SSH_KEY} -o StrictHostKeyChecking=no ec2-user@\$EC2_IP \
                             "sudo systemctl restart k3s && sleep 15"
 
-                        # Copy and apply manifests
                         scp -i \${SSH_KEY} -o StrictHostKeyChecking=no \
                             k8s/deployment.yaml k8s/service.yaml \
                             ec2-user@\$EC2_IP:/home/ec2-user/
@@ -271,7 +253,6 @@ pipeline {
                             "sudo kubectl apply -f /home/ec2-user/deployment.yaml && \
                              sudo kubectl apply -f /home/ec2-user/service.yaml"
 
-                        # Wait for rollout
                         ssh -i \${SSH_KEY} -o StrictHostKeyChecking=no ec2-user@\$EC2_IP \
                             "sudo kubectl rollout status deployment/my-djanjo-app --timeout=180s"
 
