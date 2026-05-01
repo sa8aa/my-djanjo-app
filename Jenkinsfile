@@ -124,10 +124,10 @@ pipeline {
                         credentialsId: 'aws-session-token',
                         variable: 'AWS_SESSION_TOKEN'
                     ),
-                    sshUserPrivateKey(
-                        credentialsId: 'ec2-ssh-key',
-                        keyFileVariable: 'SSH_KEY'
-                    )
+                 file(
+                credentialsId: 'ec2-ssh-key',
+                variable: 'SSH_KEY'
+            )
                 ]) {
                     sh """
                         export AWS_SESSION_TOKEN=\${AWS_SESSION_TOKEN}
