@@ -82,10 +82,20 @@ Resources:
 
           echo "k3s setup complete" > /tmp/k3s-ready
 
+# ── Elastic IP — fixed public IP ──────────────────────────
+  ElasticIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+      InstanceId: !Ref EC2Instance
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-eip"
+
 Outputs:
   InstancePublicIP:
-    Value: !GetAtt EC2Instance.PublicIp
-    Description: Public IP of the k3s server
+    Value: !Ref ElasticIP          # ← use EIP instead of EC2 dynamic IP
+    Description: Fixed public IP of the k3s server
     Export:
       Name: K3sPublicIP
 
@@ -94,4 +104,3 @@ Outputs:
     Description: EC2 Instance ID
     Export:
       Name: K3sInstanceId
-
