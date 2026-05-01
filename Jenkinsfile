@@ -3,7 +3,7 @@ pipeline {
 
     environment {
         DOCKERHUB_CREDENTIALS = credentials('dockerhub-creds')
-        IMAGE_NAME            = 'sa8aa/mydjango'
+        IMAGE_NAME            = 'sa8aa/my-djanjo-app'
 
         // AWS / ECR
         AWS_REGION     = 'us-east-1'
