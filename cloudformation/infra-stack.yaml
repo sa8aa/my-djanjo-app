@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: POC — EC2 + k3s (lightweight Kubernetes)
+Description: CloudVision POC — EC2 + k3s v1.28
 
 Parameters:
   ProjectName:
@@ -11,19 +11,19 @@ Parameters:
     Default: t3.medium
 
   ImageId:
-    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
-    Default: /aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2
+    Type: String
+    Default: ami-0d05471b100e9083f
 
   KeyName:
     Type: String
-    Description: Your AWS Academy Key Pair name 
+    Description: Your AWS Academy Key Pair name
 
 Resources:
 
   EC2SecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: Allow SSH, HTTP and k3s
+      GroupDescription: Allow SSH HTTP and k3s
       SecurityGroupIngress:
         - IpProtocol: tcp
           FromPort: 22
@@ -58,46 +58,23 @@ Resources:
         - Key: Name
           Value: !Sub "${ProjectName}-k3s-server"
       UserData:
-  Fn::Base64: !Sub |
-    #!/bin/bash
-
-    # Install k3s v1.28 (compatible with Amazon Linux 2 cgroup v1)
-    curl -sfL https://get.k3s.io | \
-        INSTALL_K3S_SKIP_SELINUX_RPM=true \
-        INSTALL_K3S_VERSION="v1.28.15+k3s1" sh -
-
-    # Wait for k3s to be ready
-    systemctl enable k3s
-    sleep 60
-
-    # Add k3s to PATH
-    echo 'export PATH=$PATH:/usr/local/bin' > /etc/profile.d/k3s.sh
-
-    # Configure kubeconfig for ec2-user
-    mkdir -p /home/ec2-user/.kube
-    cp /etc/rancher/k3s/k3s.yaml /home/ec2-user/.kube/config
-    chown -R ec2-user:ec2-user /home/ec2-user/.kube
-    chmod 644 /home/ec2-user/.kube/config
-
-    # Wait until node is Ready
-    timeout 180 bash -c 'until /usr/local/bin/k3s kubectl get nodes 2>/dev/null | grep -q Ready; do sleep 10; done'
-
-    echo "k3s setup complete" > /tmp/k3s-ready
-    
-# ── Elastic IP — fixed public IP ──────────────────────────
-  ElasticIP:
-    Type: AWS::EC2::EIP
-    Properties:
-      Domain: vpc
-      InstanceId: !Ref EC2Instance
-      Tags:
-        - Key: Name
-          Value: !Sub "${ProjectName}-eip"
+        Fn::Base64: |
+          #!/bin/bash
+          curl -sfL https://get.k3s.io | INSTALL_K3S_SKIP_SELINUX_RPM=true INSTALL_K3S_VERSION="v1.28.15+k3s1" sh -
+          systemctl enable k3s
+          sleep 60
+          echo 'export PATH=$PATH:/usr/local/bin' > /etc/profile.d/k3s.sh
+          mkdir -p /home/ec2-user/.kube
+          cp /etc/rancher/k3s/k3s.yaml /home/ec2-user/.kube/config
+          chown -R ec2-user:ec2-user /home/ec2-user/.kube
+          chmod 644 /home/ec2-user/.kube/config
+          timeout 180 bash -c 'until /usr/local/bin/k3s kubectl get nodes 2>/dev/null | grep -q Ready; do sleep 10; done'
+          echo "k3s setup complete" > /tmp/k3s-ready
 
 Outputs:
   InstancePublicIP:
-    Value: !Ref ElasticIP          # ← use EIP instead of EC2 dynamic IP
-    Description: Fixed public IP of the k3s server
+    Value: !GetAtt EC2Instance.PublicIp
+    Description: Public IP of the k3s server
     Export:
       Name: K3sPublicIP
 
