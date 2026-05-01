@@ -11,8 +11,8 @@ Parameters:
     Default: t3.medium
 
   ImageId:
-    Type: String
-    Default: ami-0d05471b100e9083f
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2
 
   KeyName:
     Type: String
