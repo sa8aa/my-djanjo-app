@@ -93,21 +93,16 @@ pipeline {
                         export AWS_SESSION_TOKEN=\${AWS_SESSION_TOKEN}
 
                         # ── Create ECR repo if not exists ──────────────────
-                        REPO_EXISTS=\$(aws ecr describe-repositories \
+                        aws ecr describe-repositories \
                             --repository-names my-djanjo-app \
                             --region ${AWS_REGION} \
-                            --query 'repositories[0].repositoryName' \
-                            --output text 2>/dev/null || echo "NOT_FOUND")
+                            --no-cli-pager 2>/dev/null || \
+                        aws ecr create-repository \
+                            --repository-name my-djanjo-app \
+                            --region ${AWS_REGION} \
+                            --no-cli-pager
 
-                        if [ "\$REPO_EXISTS" = "NOT_FOUND" ]; then
-                            echo "Creating ECR repository..."
-                            aws ecr create-repository \
-                                --repository-name my-djanjo-app \
-                                --region ${AWS_REGION}
-                            echo "✅ ECR repository created"
-                        else
-                            echo "✅ ECR repository already exists — skipping"
-                        fi
+                        echo "✅ ECR repository ready"
 
                         # ── Login to ECR ───────────────────────────────────
                         aws ecr get-login-password --region ${AWS_REGION} | \
@@ -189,7 +184,8 @@ pipeline {
                         elif [ "\$STACK_STATUS" = "CREATE_COMPLETE" ] || \
                              [ "\$STACK_STATUS" = "UPDATE_COMPLETE" ]; then
 
-                            if [ "\$TEMPLATE_HASH" != "\$PREVIOUS_HASH" ]; then
+                            if [ "\$PREVIOUS_HASH" != "NONE" ] && \
+                               [ "\$TEMPLATE_HASH" != "\$PREVIOUS_HASH" ]; then
                                 echo "Template modified — updating stack..."
                                 aws cloudformation update-stack \
                                     --stack-name my-djanjo-app-infra \
@@ -208,6 +204,7 @@ pipeline {
                                 echo \$TEMPLATE_HASH > \$HASH_FILE
                             else
                                 echo "✅ Stack exists and template unchanged — skipping"
+                                echo \$TEMPLATE_HASH > \$HASH_FILE
                             fi
 
                         else
@@ -238,6 +235,7 @@ pipeline {
                                 -o ConnectTimeout=10 \
                                 ec2-user@\$EC2_IP \
                                 "sudo /usr/local/bin/k3s kubectl get nodes 2>/dev/null | grep Ready || echo NOT_READY")
+
                             if echo "\$STATUS" | grep -q "Ready"; then
                                 echo "✅ k3s is ready : \$STATUS"
                                 break
