@@ -1,0 +1,103 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: POC — EC2 + k3s (lightweight Kubernetes)
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: my-djanjo-app
+
+  InstanceType:
+    Type: String
+    Default: t3.medium
+
+  ImageId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+
+  KeyName:
+    Type: String
+    Description: Your AWS Academy Key Pair name
+
+Resources:
+
+  EC2SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow SSH, HTTP and k3s
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0          # ⚠️ Restrict to your IP in production
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 8000
+          ToPort: 8000
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 6443
+          ToPort: 6443
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 30000
+          ToPort: 32767
+          CidrIp: 0.0.0.0/0
+
+  EC2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !Ref InstanceType
+      ImageId: !Ref ImageId
+      KeyName: !Ref KeyName
+      SecurityGroups:
+        - !Ref EC2SecurityGroup
+      Tags:
+        - Key: Name
+          Value: !Sub "${ProjectName}-k3s-server"
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -e
+
+          # Update system
+          yum update -y
+
+          # Install k3s with retry
+          INSTALLED=false
+          for i in 1 2 3; do
+            curl -sfL https://get.k3s.io | sh - && INSTALLED=true && break
+            echo "k3s install attempt $i failed, retrying..."
+            sleep 10
+          done
+
+          if [ "$INSTALLED" = "false" ]; then
+            echo "❌ k3s failed to install after 3 attempts"
+            exit 1
+          fi
+
+          # Wait for k3s to be fully ready (2 min timeout)
+          timeout 120 bash -c \
+            'until sudo kubectl get nodes 2>/dev/null | grep -q Ready; do sleep 5; done'
+
+          # Make kubeconfig accessible to ec2-user
+          chmod 644 /etc/rancher/k3s/k3s.yaml
+          cp /etc/rancher/k3s/k3s.yaml /home/ec2-user/k3s.yaml
+          chown ec2-user:ec2-user /home/ec2-user/k3s.yaml
+
+          echo "✅ k3s setup complete" > /tmp/k3s-ready
+
+Outputs:
+  InstancePublicIP:
+    Value: !GetAtt EC2Instance.PublicIp
+    Description: Public IP of the k3s server
+    Export:
+      Name: K3sPublicIP
+
+  InstanceId:
+    Value: !Ref EC2Instance
+    Description: EC2 Instance ID
+    Export:
+      Name: K3sInstanceId
