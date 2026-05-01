@@ -58,27 +58,32 @@ Resources:
         - Key: Name
           Value: !Sub "${ProjectName}-k3s-server"
       UserData:
-        Fn::Base64: !Sub |
-          #!/bin/bash
+  Fn::Base64: !Sub |
+    #!/bin/bash
 
-          # Skip yum update — too slow and causes timeout
-          # Install k3s directly
-          curl -sfL https://get.k3s.io | INSTALL_K3S_SKIP_SELINUX_RPM=true sh -
+    # Install k3s v1.28 (compatible with Amazon Linux 2 cgroup v1)
+    curl -sfL https://get.k3s.io | \
+        INSTALL_K3S_SKIP_SELINUX_RPM=true \
+        INSTALL_K3S_VERSION="v1.28.15+k3s1" sh -
 
-          # Wait for k3s service to start
-          systemctl enable k3s
-          systemctl start k3s
+    # Wait for k3s to be ready
+    systemctl enable k3s
+    sleep 60
 
-          # Wait until node is Ready
-          timeout 120 bash -c 'until kubectl get nodes 2>/dev/null | grep -q Ready; do sleep 5; done'
+    # Add k3s to PATH
+    echo 'export PATH=$PATH:/usr/local/bin' > /etc/profile.d/k3s.sh
 
-          # Make kubeconfig accessible
-          chmod 644 /etc/rancher/k3s/k3s.yaml
-          cp /etc/rancher/k3s/k3s.yaml /home/ec2-user/k3s.yaml
-          chown ec2-user:ec2-user /home/ec2-user/k3s.yaml
+    # Configure kubeconfig for ec2-user
+    mkdir -p /home/ec2-user/.kube
+    cp /etc/rancher/k3s/k3s.yaml /home/ec2-user/.kube/config
+    chown -R ec2-user:ec2-user /home/ec2-user/.kube
+    chmod 644 /home/ec2-user/.kube/config
 
-          echo "k3s setup complete" > /tmp/k3s-ready
+    # Wait until node is Ready
+    timeout 180 bash -c 'until /usr/local/bin/k3s kubectl get nodes 2>/dev/null | grep -q Ready; do sleep 10; done'
 
+    echo "k3s setup complete" > /tmp/k3s-ready
+    
 # ── Elastic IP — fixed public IP ──────────────────────────
   ElasticIP:
     Type: AWS::EC2::EIP
