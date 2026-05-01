@@ -119,20 +119,20 @@ pipeline {
                         credentialsId: 'aws-credentials',
                         usernameVariable: 'AWS_ACCESS_KEY_ID',
                         passwordVariable: 'AWS_SECRET_ACCESS_KEY'
-            ),
+                    ),
                     string(
                         credentialsId: 'aws-session-token',
                         variable: 'AWS_SESSION_TOKEN'
-            ),
+                    ),
                     file(
                         credentialsId: 'ec2-ssh-key',
                         variable: 'SSH_KEY'
-            )
-        ]) {
+                    )
+                ]) {
                     sh """
                         export AWS_SESSION_TOKEN=\${AWS_SESSION_TOKEN}
 
-                        # Check if stack already exists
+                        # ── Check if stack already exists ──────────────────
                         STACK_STATUS=\$(aws cloudformation describe-stacks \
                             --stack-name my-djanjo-app-infra \
                             --region ${AWS_REGION} \
@@ -165,7 +165,7 @@ pipeline {
                             exit 1
                         fi
 
-                        # Get EC2 public IP
+                        # ── Get EC2 public IP ──────────────────────────────
                         EC2_IP=\$(aws cloudformation describe-stacks \
                             --stack-name my-djanjo-app-infra \
                             --query 'Stacks[0].Outputs[?OutputKey==`InstancePublicIP`].OutputValue' \
@@ -175,11 +175,11 @@ pipeline {
                         echo "EC2 IP: \$EC2_IP"
                         echo \$EC2_IP > /tmp/ec2-ip.txt
 
-                        # Fix key permissions
+                        # ── Fix key permissions ────────────────────────────
                         cp \${SSH_KEY} /tmp/ec2-key.pem
                         chmod 400 /tmp/ec2-key.pem
 
-                        # Wait for k3s to be ready (max 5 minutes)
+                        # ── Wait for k3s to be ready (max 5 min) ──────────
                         echo "Waiting for k3s to be ready..."
 
                         for i in \$(seq 1 30); do
@@ -192,28 +192,30 @@ pipeline {
                             if echo "\$STATUS" | grep -q "Ready"; then
                                 echo "✅ k3s is ready : \$STATUS"
                                 break
-                        fi
+                            fi
 
-                        echo "Attempt \$i/30 — k3s not ready yet, waiting 10s..."
-                        sleep 10
+                            echo "Attempt \$i/30 — k3s not ready yet, waiting 10s..."
+                            sleep 10
 
-                        if [ \$i -eq 30 ]; then
-                            echo "❌ k3s did not become ready in time"
-                            exit 1
-                        fi
-                    done
+                            if [ \$i -eq 30 ]; then
+                                echo "❌ k3s did not become ready in time"
+                                exit 1
+                            fi
+                        done
 
-                    # Cleanup temp key
-                    rm -f /tmp/ec2-key.pem
+                        # ── Cleanup temp key ───────────────────────────────
+                        rm -f /tmp/ec2-key.pem
 
-                    echo "✅ Infrastructure provisioned and k3s ready at : \$EC2_IP"
-                """
+                        echo "✅ Infrastructure provisioned and k3s ready at : \$EC2_IP"
+                    """
+                }
+            }
+            post {
+                success { echo "✅ Infrastructure provisioned successfully" }
+                failure { echo "❌ CloudFormation or k3s setup failed" }
+            }
         }
-    }
-        post {
-            success { echo "✅ Infrastructure provisioned successfully" }
-            failure { echo "❌ CloudFormation or k3s setup failed" }
-        }
+
     }
 
     post {
