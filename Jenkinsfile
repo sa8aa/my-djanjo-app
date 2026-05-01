@@ -92,10 +92,29 @@ pipeline {
                     sh """
                         export AWS_SESSION_TOKEN=\${AWS_SESSION_TOKEN}
 
+                        # ── Create ECR repo if not exists ──────────────────
+                        REPO_EXISTS=\$(aws ecr describe-repositories \
+                            --repository-names my-djanjo-app \
+                            --region ${AWS_REGION} \
+                            --query 'repositories[0].repositoryName' \
+                            --output text 2>/dev/null || echo "NOT_FOUND")
+
+                        if [ "\$REPO_EXISTS" = "NOT_FOUND" ]; then
+                            echo "Creating ECR repository..."
+                            aws ecr create-repository \
+                                --repository-name my-djanjo-app \
+                                --region ${AWS_REGION}
+                            echo "✅ ECR repository created"
+                        else
+                            echo "✅ ECR repository already exists — skipping"
+                        fi
+
+                        # ── Login to ECR ───────────────────────────────────
                         aws ecr get-login-password --region ${AWS_REGION} | \
                             docker login --username AWS \
                             --password-stdin ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
 
+                        # ── Tag and push ───────────────────────────────────
                         docker tag ${DOCKER_IMAGE}:${IMAGE_TAG} ${ECR_REPO}:${IMAGE_TAG}
                         docker tag ${DOCKER_IMAGE}:latest ${ECR_REPO}:latest
 
@@ -132,6 +151,14 @@ pipeline {
                     sh """
                         export AWS_SESSION_TOKEN=\${AWS_SESSION_TOKEN}
 
+                        # ── Detect if infra-stack.yaml was modified ────────
+                        TEMPLATE_HASH=\$(md5sum cloudformation/infra-stack.yaml | cut -d' ' -f1)
+                        HASH_FILE="/tmp/infra-stack-hash.txt"
+                        PREVIOUS_HASH=\$(cat \$HASH_FILE 2>/dev/null || echo "NONE")
+
+                        echo "Current  template hash : \$TEMPLATE_HASH"
+                        echo "Previous template hash : \$PREVIOUS_HASH"
+
                         # ── Check if stack already exists ──────────────────
                         STACK_STATUS=\$(aws cloudformation describe-stacks \
                             --stack-name my-djanjo-app-infra \
@@ -142,7 +169,7 @@ pipeline {
                         echo "Stack status: \$STACK_STATUS"
 
                         if [ "\$STACK_STATUS" = "DOES_NOT_EXIST" ]; then
-                            echo "Creating stack..."
+                            echo "Stack does not exist — creating..."
                             aws cloudformation create-stack \
                                 --stack-name my-djanjo-app-infra \
                                 --template-body file://cloudformation/infra-stack.yaml \
@@ -156,12 +183,35 @@ pipeline {
                                 --stack-name my-djanjo-app-infra \
                                 --region ${AWS_REGION}
 
+                            echo "✅ Stack created"
+                            echo \$TEMPLATE_HASH > \$HASH_FILE
+
                         elif [ "\$STACK_STATUS" = "CREATE_COMPLETE" ] || \
                              [ "\$STACK_STATUS" = "UPDATE_COMPLETE" ]; then
-                            echo "Stack already exists — skipping creation"
+
+                            if [ "\$TEMPLATE_HASH" != "\$PREVIOUS_HASH" ]; then
+                                echo "Template modified — updating stack..."
+                                aws cloudformation update-stack \
+                                    --stack-name my-djanjo-app-infra \
+                                    --template-body file://cloudformation/infra-stack.yaml \
+                                    --parameters \
+                                        ParameterKey=ProjectName,ParameterValue=my-djanjo-app \
+                                        ParameterKey=KeyName,ParameterValue=${KEY_NAME} \
+                                    --region ${AWS_REGION}
+
+                                echo "Waiting for stack update..."
+                                aws cloudformation wait stack-update-complete \
+                                    --stack-name my-djanjo-app-infra \
+                                    --region ${AWS_REGION}
+
+                                echo "✅ Stack updated"
+                                echo \$TEMPLATE_HASH > \$HASH_FILE
+                            else
+                                echo "✅ Stack exists and template unchanged — skipping"
+                            fi
 
                         else
-                            echo "Stack in unexpected status: \$STACK_STATUS"
+                            echo "Stack in unexpected status: \$STACK_STATUS — check AWS Console"
                             exit 1
                         fi
 
