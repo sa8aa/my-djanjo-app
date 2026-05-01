@@ -20,6 +20,12 @@ Parameters:
 
 Resources:
 
+  EC2InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - LabRole                      # ← pre-existing AWS Academy role with ECR access
+
   EC2SecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
@@ -28,7 +34,7 @@ Resources:
         - IpProtocol: tcp
           FromPort: 22
           ToPort: 22
-          CidrIp: 0.0.0.0/0          # ⚠️ Restrict to your IP in production
+          CidrIp: 0.0.0.0/0
         - IpProtocol: tcp
           FromPort: 80
           ToPort: 80
@@ -52,6 +58,7 @@ Resources:
       InstanceType: !Ref InstanceType
       ImageId: !Ref ImageId
       KeyName: !Ref KeyName
+      IamInstanceProfile: !Ref EC2InstanceProfile
       SecurityGroups:
         - !Ref EC2SecurityGroup
       Tags:
