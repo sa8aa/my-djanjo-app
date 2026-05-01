@@ -10,7 +10,7 @@ pipeline {
         AWS_ACCOUNT_ID = '271744664756'
         ECR_REPO       = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/my-djanjo-app"
         IMAGE_TAG      = "${BUILD_NUMBER}"
-        KEY_NAME       = 'vockey'                        // ← AWS Academy default key name
+        KEY_NAME       = 'vockey'
     }
 
     stages {
@@ -142,7 +142,7 @@ pipeline {
                             echo "Creating stack..."
                             aws cloudformation create-stack \\
                                 --stack-name my-djanjo-app-infra \\
-                                --capabilities CAPABILITY_NAMED_IAM \
+                                --capabilities CAPABILITY_NAMED_IAM \\
                                 --template-body file://cloudformation/infra-stack.yaml \\
                                 --parameters \\
                                     ParameterKey=ProjectName,ParameterValue=my-djanjo-app \\
@@ -208,46 +208,47 @@ pipeline {
             }
         }
 
-    }
-    stage('Deploy to k3s') {
-    steps {
-        withCredentials([
-            sshUserPrivateKey(
-                credentialsId: 'ec2-ssh-key',
-                keyFileVariable: 'SSH_KEY'
-            )
-        ]) {
-            sh """
-                EC2_IP=\$(cat /tmp/ec2-ip.txt)
+        stage('Deploy to k3s') {                // ← now correctly INSIDE stages
+            steps {
+                withCredentials([
+                    sshUserPrivateKey(
+                        credentialsId: 'ec2-ssh-key',
+                        keyFileVariable: 'SSH_KEY'
+                    )
+                ]) {
+                    sh """
+                        EC2_IP=\$(cat /tmp/ec2-ip.txt)
 
-                # ── Copy manifests to EC2 ──────────────────────────
-                scp -i \${SSH_KEY} \
-                    -o StrictHostKeyChecking=no \
-                    k8s/deployment.yaml k8s/service.yaml \
-                    ec2-user@\$EC2_IP:/home/ec2-user/
+                        # ── Copy manifests to EC2 ──────────────────────────
+                        scp -i \${SSH_KEY} \
+                            -o StrictHostKeyChecking=no \
+                            k8s/deployment.yaml k8s/service.yaml \
+                            ec2-user@\$EC2_IP:/home/ec2-user/
 
-                # ── Apply manifests ────────────────────────────────
-                ssh -i \${SSH_KEY} \
-                    -o StrictHostKeyChecking=no \
-                    ec2-user@\$EC2_IP \
-                    "sudo kubectl apply -f /home/ec2-user/deployment.yaml && \
-                     sudo kubectl apply -f /home/ec2-user/service.yaml"
+                        # ── Apply manifests ────────────────────────────────
+                        ssh -i \${SSH_KEY} \
+                            -o StrictHostKeyChecking=no \
+                            ec2-user@\$EC2_IP \
+                            "sudo kubectl apply -f /home/ec2-user/deployment.yaml && \
+                             sudo kubectl apply -f /home/ec2-user/service.yaml"
 
-                # ── Wait for rollout ───────────────────────────────
-                ssh -i \${SSH_KEY} \
-                    -o StrictHostKeyChecking=no \
-                    ec2-user@\$EC2_IP \
-                    "sudo kubectl rollout status deployment/my-djanjo-app --timeout=120s"
+                        # ── Wait for rollout ───────────────────────────────
+                        ssh -i \${SSH_KEY} \
+                            -o StrictHostKeyChecking=no \
+                            ec2-user@\$EC2_IP \
+                            "sudo kubectl rollout status deployment/my-djanjo-app --timeout=120s"
 
-                echo "✅ App deployed at http://\$EC2_IP:30080"
-            """
+                        echo "✅ App deployed at http://\$EC2_IP:30080"
+                    """
+                }
+            }
+            post {
+                success { echo "✅ Deployment successful" }
+                failure { echo "❌ Deployment failed" }
+            }
         }
-    }
-    post {
-        success { echo "✅ Deployment successful" }
-        failure { echo "❌ Deployment failed" }
-    }
-}
+
+    }   // ← closes stages
 
     post {
         always {
