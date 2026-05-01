@@ -8,9 +8,9 @@ pipeline {
         // AWS / ECR
         AWS_REGION     = 'us-east-1'
         AWS_ACCOUNT_ID = '271744664756'
-        ECR_REPO       = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/mydjango"
+        ECR_REPO       = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/my-djanjo-app"
         IMAGE_TAG      = "${BUILD_NUMBER}"
-        KEY_NAME       = 'your-ec2-key-pair-name'       // ← change this
+        KEY_NAME       = 'vockey'                        // ← AWS Academy default key name
     }
 
     stages {
@@ -77,13 +77,21 @@ pipeline {
                         export AWS_SECRET_ACCESS_KEY=\${AWS_SECRET_ACCESS_KEY}
                         export AWS_SESSION_TOKEN=\${AWS_SESSION_TOKEN}
 
-                        aws sts get-caller-identity
+                        # ── Create ECR repo if it doesn't exist ──────────────
+                        aws ecr describe-repositories \
+                            --repository-names my-djanjo-app \
+                            --region ${AWS_REGION} 2>/dev/null || \
+                        aws ecr create-repository \
+                            --repository-name my-djanjo-app \
+                            --region ${AWS_REGION}
 
+                        # ── Login to ECR ──────────────────────────────────────
                         AWS_PASS=\$(aws ecr get-login-password --region ${AWS_REGION})
-                        echo "\$AWS_PASS" | docker login \\
-                            --username AWS \\
+                        echo "\$AWS_PASS" | docker login \
+                            --username AWS \
                             --password-stdin ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
 
+                        # ── Tag and push ───────────────────────────────────────
                         docker tag ${IMAGE_NAME}:${IMAGE_TAG} ${ECR_REPO}:${IMAGE_TAG}
                         docker tag ${IMAGE_NAME}:${IMAGE_TAG} ${ECR_REPO}:latest
                         docker push ${ECR_REPO}:${IMAGE_TAG}
