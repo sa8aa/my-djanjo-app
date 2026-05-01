@@ -210,11 +210,11 @@ pipeline {
                 """
         }
     }
-    post {
-        success { echo "✅ Infrastructure provisioned successfully" }
-        failure { echo "❌ CloudFormation or k3s setup failed" }
+        post {
+            success { echo "✅ Infrastructure provisioned successfully" }
+            failure { echo "❌ CloudFormation or k3s setup failed" }
+        }
     }
-}
 
     post {
         always {
