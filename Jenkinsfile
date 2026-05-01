@@ -208,6 +208,45 @@ pipeline {
         }
 
     }
+    stage('Deploy to k3s') {
+    steps {
+        withCredentials([
+            sshUserPrivateKey(
+                credentialsId: 'ec2-ssh-key',
+                keyFileVariable: 'SSH_KEY'
+            )
+        ]) {
+            sh """
+                EC2_IP=\$(cat /tmp/ec2-ip.txt)
+
+                # ── Copy manifests to EC2 ──────────────────────────
+                scp -i \${SSH_KEY} \
+                    -o StrictHostKeyChecking=no \
+                    k8s/deployment.yaml k8s/service.yaml \
+                    ec2-user@\$EC2_IP:/home/ec2-user/
+
+                # ── Apply manifests ────────────────────────────────
+                ssh -i \${SSH_KEY} \
+                    -o StrictHostKeyChecking=no \
+                    ec2-user@\$EC2_IP \
+                    "sudo kubectl apply -f /home/ec2-user/deployment.yaml && \
+                     sudo kubectl apply -f /home/ec2-user/service.yaml"
+
+                # ── Wait for rollout ───────────────────────────────
+                ssh -i \${SSH_KEY} \
+                    -o StrictHostKeyChecking=no \
+                    ec2-user@\$EC2_IP \
+                    "sudo kubectl rollout status deployment/my-djanjo-app --timeout=120s"
+
+                echo "✅ App deployed at http://\$EC2_IP:30080"
+            """
+        }
+    }
+    post {
+        success { echo "✅ Deployment successful" }
+        failure { echo "❌ Deployment failed" }
+    }
+}
 
     post {
         always {
