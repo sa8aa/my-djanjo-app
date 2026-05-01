@@ -1,0 +1,19 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: my-djanjo-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: my-djanjo-app
+  template:
+    metadata:
+      labels:
+        app: my-djanjo-app
+    spec:
+      containers:
+        - name: my-djanjo-app
+          image: 271744664756.dkr.ecr.us-east-1.amazonaws.com/my-djanjo-app:latest
+          ports:
+            - containerPort: 8000
