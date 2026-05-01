@@ -113,104 +113,108 @@ pipeline {
         }
 
         stage('Provision Infra') {
-            steps {
-                withCredentials([
-                    usernamePassword(
-                        credentialsId: 'aws-credentials',
-                        usernameVariable: 'AWS_ACCESS_KEY_ID',
-                        passwordVariable: 'AWS_SECRET_ACCESS_KEY'
-                    ),
-                    string(
-                        credentialsId: 'aws-session-token',
-                        variable: 'AWS_SESSION_TOKEN'
-                    ),
-                 file(
+    steps {
+        withCredentials([
+            usernamePassword(
+                credentialsId: 'aws-credentials',
+                usernameVariable: 'AWS_ACCESS_KEY_ID',
+                passwordVariable: 'AWS_SECRET_ACCESS_KEY'
+            ),
+            string(
+                credentialsId: 'aws-session-token',
+                variable: 'AWS_SESSION_TOKEN'
+            ),
+            file(
                 credentialsId: 'ec2-ssh-key',
                 variable: 'SSH_KEY'
             )
-                ]) {
-                    sh """
-                        export AWS_SESSION_TOKEN=\${AWS_SESSION_TOKEN}
+        ]) {
+            sh """
+                export AWS_SESSION_TOKEN=\${AWS_SESSION_TOKEN}
 
-                        # ── Check if stack already exists ──────────────────
-                        STACK_STATUS=\$(aws cloudformation describe-stacks \
-                            --stack-name my-djanjo-app-infra \
-                            --region ${AWS_REGION} \
-                            --query 'Stacks[0].StackStatus' \
-                            --output text 2>/dev/null || echo "DOES_NOT_EXIST")
+                # Check if stack already exists
+                STACK_STATUS=\$(aws cloudformation describe-stacks \
+                    --stack-name my-djanjo-app-infra \
+                    --region ${AWS_REGION} \
+                    --query 'Stacks[0].StackStatus' \
+                    --output text 2>/dev/null || echo "DOES_NOT_EXIST")
 
-                        echo "Stack status: \$STACK_STATUS"
+                echo "Stack status: \$STACK_STATUS"
 
-                        if [ "\$STACK_STATUS" = "DOES_NOT_EXIST" ]; then
-                            echo "Creating stack..."
-                            aws cloudformation create-stack \
-                                --stack-name my-djanjo-app-infra \
-                                --template-body file://cloudformation/infra-stack.yaml \
-                                --parameters \
-                                    ParameterKey=ProjectName,ParameterValue=my-djanjo-app \
-                                    ParameterKey=KeyName,ParameterValue=${KEY_NAME} \
-                                --region ${AWS_REGION}
+                if [ "\$STACK_STATUS" = "DOES_NOT_EXIST" ]; then
+                    echo "Creating stack..."
+                    aws cloudformation create-stack \
+                        --stack-name my-djanjo-app-infra \
+                        --template-body file://cloudformation/infra-stack.yaml \
+                        --parameters \
+                            ParameterKey=ProjectName,ParameterValue=my-djanjo-app \
+                            ParameterKey=KeyName,ParameterValue=${KEY_NAME} \
+                        --region ${AWS_REGION}
 
-                            echo "Waiting for stack creation..."
-                            aws cloudformation wait stack-create-complete \
-                                --stack-name my-djanjo-app-infra \
-                                --region ${AWS_REGION}
+                    echo "Waiting for stack creation..."
+                    aws cloudformation wait stack-create-complete \
+                        --stack-name my-djanjo-app-infra \
+                        --region ${AWS_REGION}
 
-                        elif [ "\$STACK_STATUS" = "CREATE_COMPLETE" ] || \
-                             [ "\$STACK_STATUS" = "UPDATE_COMPLETE" ]; then
-                            echo "Stack already exists — skipping creation"
+                elif [ "\$STACK_STATUS" = "CREATE_COMPLETE" ] || \
+                     [ "\$STACK_STATUS" = "UPDATE_COMPLETE" ]; then
+                    echo "Stack already exists — skipping creation"
 
-                        else
-                            echo "Stack in unexpected status: \$STACK_STATUS"
-                            exit 1
-                        fi
+                else
+                    echo "Stack in unexpected status: \$STACK_STATUS"
+                    exit 1
+                fi
 
-                        # ── Get EC2 public IP ──────────────────────────────
-                        EC2_IP=\$(aws cloudformation describe-stacks \
-                            --stack-name my-djanjo-app-infra \
-                            --query 'Stacks[0].Outputs[?OutputKey==`InstancePublicIP`].OutputValue' \
-                            --output text \
-                            --region ${AWS_REGION})
+                # Get EC2 public IP
+                EC2_IP=\$(aws cloudformation describe-stacks \
+                    --stack-name my-djanjo-app-infra \
+                    --query 'Stacks[0].Outputs[?OutputKey==`InstancePublicIP`].OutputValue' \
+                    --output text \
+                    --region ${AWS_REGION})
 
-                        echo "EC2 IP: \$EC2_IP"
-                        echo \$EC2_IP > /tmp/ec2-ip.txt
+                echo "EC2 IP: \$EC2_IP"
+                echo \$EC2_IP > /tmp/ec2-ip.txt
 
-                        # ── Wait for k3s to be ready (max 5 min) ──────────
-                        echo "Waiting for k3s to be ready..."
-                        chmod 400 \${SSH_KEY}
+                # Fix key permissions
+                cp \${SSH_KEY} /tmp/ec2-key.pem
+                chmod 400 /tmp/ec2-key.pem
 
-                        for i in \$(seq 1 30); do
-                            STATUS=\$(ssh -i \${SSH_KEY} \
-                                -o StrictHostKeyChecking=no \
-                                -o ConnectTimeout=10 \
-                                ec2-user@\$EC2_IP \
-                                "sudo kubectl get nodes 2>/dev/null | grep Ready || echo NOT_READY")
+                # Wait for k3s to be ready (max 5 minutes)
+                echo "Waiting for k3s to be ready..."
 
-                            if echo "\$STATUS" | grep -q "Ready"; then
-                                echo "✅ k3s is ready : \$STATUS"
-                                break
-                            fi
+                for i in \$(seq 1 30); do
+                    STATUS=\$(ssh -i /tmp/ec2-key.pem \
+                        -o StrictHostKeyChecking=no \
+                        -o ConnectTimeout=10 \
+                        ec2-user@\$EC2_IP \
+                        "sudo kubectl get nodes 2>/dev/null | grep Ready || echo NOT_READY")
 
-                            echo "Attempt \$i/30 — k3s not ready yet, waiting 10s..."
-                            sleep 10
+                    if echo "\$STATUS" | grep -q "Ready"; then
+                        echo "✅ k3s is ready : \$STATUS"
+                        break
+                    fi
 
-                            if [ \$i -eq 30 ]; then
-                                echo "❌ k3s did not become ready in time"
-                                exit 1
-                            fi
-                        done
+                    echo "Attempt \$i/30 — k3s not ready yet, waiting 10s..."
+                    sleep 10
 
-                        echo "✅ Infrastructure provisioned and k3s ready at : \$EC2_IP"
-                    """
-                }
-            }
-            post {
-                success { echo "✅ Infrastructure provisioned successfully" }
-                failure { echo "❌ CloudFormation or k3s setup failed" }
-            }
+                    if [ \$i -eq 30 ]; then
+                        echo "❌ k3s did not become ready in time"
+                        exit 1
+                    fi
+                done
+
+                # Cleanup temp key
+                rm -f /tmp/ec2-key.pem
+
+                echo "✅ Infrastructure provisioned and k3s ready at : \$EC2_IP"
+            """
         }
-
     }
+    post {
+        success { echo "✅ Infrastructure provisioned successfully" }
+        failure { echo "❌ CloudFormation or k3s setup failed" }
+    }
+}
 
     post {
         always {
