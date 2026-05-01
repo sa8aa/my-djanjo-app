@@ -237,8 +237,7 @@ pipeline {
                                 -o StrictHostKeyChecking=no \
                                 -o ConnectTimeout=10 \
                                 ec2-user@\$EC2_IP \
-                                "sudo kubectl get nodes 2>/dev/null | grep Ready || echo NOT_READY")
-
+                                "sudo /usr/local/bin/k3s kubectl get nodes 2>/dev/null | grep Ready || echo NOT_READY")
                             if echo "\$STATUS" | grep -q "Ready"; then
                                 echo "✅ k3s is ready : \$STATUS"
                                 break
