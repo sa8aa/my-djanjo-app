@@ -113,101 +113,101 @@ pipeline {
         }
 
         stage('Provision Infra') {
-    steps {
-        withCredentials([
-            usernamePassword(
-                credentialsId: 'aws-credentials',
-                usernameVariable: 'AWS_ACCESS_KEY_ID',
-                passwordVariable: 'AWS_SECRET_ACCESS_KEY'
+            steps {
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: 'aws-credentials',
+                        usernameVariable: 'AWS_ACCESS_KEY_ID',
+                        passwordVariable: 'AWS_SECRET_ACCESS_KEY'
             ),
-            string(
-                credentialsId: 'aws-session-token',
-                variable: 'AWS_SESSION_TOKEN'
+                    string(
+                        credentialsId: 'aws-session-token',
+                        variable: 'AWS_SESSION_TOKEN'
             ),
-            file(
-                credentialsId: 'ec2-ssh-key',
-                variable: 'SSH_KEY'
+                    file(
+                        credentialsId: 'ec2-ssh-key',
+                        variable: 'SSH_KEY'
             )
         ]) {
-            sh """
-                export AWS_SESSION_TOKEN=\${AWS_SESSION_TOKEN}
+                    sh """
+                        export AWS_SESSION_TOKEN=\${AWS_SESSION_TOKEN}
 
-                # Check if stack already exists
-                STACK_STATUS=\$(aws cloudformation describe-stacks \
-                    --stack-name my-djanjo-app-infra \
-                    --region ${AWS_REGION} \
-                    --query 'Stacks[0].StackStatus' \
-                    --output text 2>/dev/null || echo "DOES_NOT_EXIST")
+                        # Check if stack already exists
+                        STACK_STATUS=\$(aws cloudformation describe-stacks \
+                            --stack-name my-djanjo-app-infra \
+                            --region ${AWS_REGION} \
+                            --query 'Stacks[0].StackStatus' \
+                            --output text 2>/dev/null || echo "DOES_NOT_EXIST")
 
-                echo "Stack status: \$STACK_STATUS"
+                        echo "Stack status: \$STACK_STATUS"
 
-                if [ "\$STACK_STATUS" = "DOES_NOT_EXIST" ]; then
-                    echo "Creating stack..."
-                    aws cloudformation create-stack \
-                        --stack-name my-djanjo-app-infra \
-                        --template-body file://cloudformation/infra-stack.yaml \
-                        --parameters \
-                            ParameterKey=ProjectName,ParameterValue=my-djanjo-app \
-                            ParameterKey=KeyName,ParameterValue=${KEY_NAME} \
-                        --region ${AWS_REGION}
+                        if [ "\$STACK_STATUS" = "DOES_NOT_EXIST" ]; then
+                            echo "Creating stack..."
+                            aws cloudformation create-stack \
+                                --stack-name my-djanjo-app-infra \
+                                --template-body file://cloudformation/infra-stack.yaml \
+                                --parameters \
+                                    ParameterKey=ProjectName,ParameterValue=my-djanjo-app \
+                                    ParameterKey=KeyName,ParameterValue=${KEY_NAME} \
+                                --region ${AWS_REGION}
 
-                    echo "Waiting for stack creation..."
-                    aws cloudformation wait stack-create-complete \
-                        --stack-name my-djanjo-app-infra \
-                        --region ${AWS_REGION}
+                            echo "Waiting for stack creation..."
+                            aws cloudformation wait stack-create-complete \
+                                --stack-name my-djanjo-app-infra \
+                                --region ${AWS_REGION}
 
-                elif [ "\$STACK_STATUS" = "CREATE_COMPLETE" ] || \
-                     [ "\$STACK_STATUS" = "UPDATE_COMPLETE" ]; then
-                    echo "Stack already exists — skipping creation"
+                        elif [ "\$STACK_STATUS" = "CREATE_COMPLETE" ] || \
+                             [ "\$STACK_STATUS" = "UPDATE_COMPLETE" ]; then
+                            echo "Stack already exists — skipping creation"
 
-                else
-                    echo "Stack in unexpected status: \$STACK_STATUS"
-                    exit 1
-                fi
+                        else
+                            echo "Stack in unexpected status: \$STACK_STATUS"
+                            exit 1
+                        fi
 
-                # Get EC2 public IP
-                EC2_IP=\$(aws cloudformation describe-stacks \
-                    --stack-name my-djanjo-app-infra \
-                    --query 'Stacks[0].Outputs[?OutputKey==`InstancePublicIP`].OutputValue' \
-                    --output text \
-                    --region ${AWS_REGION})
+                        # Get EC2 public IP
+                        EC2_IP=\$(aws cloudformation describe-stacks \
+                            --stack-name my-djanjo-app-infra \
+                            --query 'Stacks[0].Outputs[?OutputKey==`InstancePublicIP`].OutputValue' \
+                            --output text \
+                            --region ${AWS_REGION})
 
-                echo "EC2 IP: \$EC2_IP"
-                echo \$EC2_IP > /tmp/ec2-ip.txt
+                        echo "EC2 IP: \$EC2_IP"
+                        echo \$EC2_IP > /tmp/ec2-ip.txt
 
-                # Fix key permissions
-                cp \${SSH_KEY} /tmp/ec2-key.pem
-                chmod 400 /tmp/ec2-key.pem
+                        # Fix key permissions
+                        cp \${SSH_KEY} /tmp/ec2-key.pem
+                        chmod 400 /tmp/ec2-key.pem
 
-                # Wait for k3s to be ready (max 5 minutes)
-                echo "Waiting for k3s to be ready..."
+                        # Wait for k3s to be ready (max 5 minutes)
+                        echo "Waiting for k3s to be ready..."
 
-                for i in \$(seq 1 30); do
-                    STATUS=\$(ssh -i /tmp/ec2-key.pem \
-                        -o StrictHostKeyChecking=no \
-                        -o ConnectTimeout=10 \
-                        ec2-user@\$EC2_IP \
-                        "sudo kubectl get nodes 2>/dev/null | grep Ready || echo NOT_READY")
+                        for i in \$(seq 1 30); do
+                            STATUS=\$(ssh -i /tmp/ec2-key.pem \
+                                -o StrictHostKeyChecking=no \
+                                -o ConnectTimeout=10 \
+                                ec2-user@\$EC2_IP \
+                                "sudo kubectl get nodes 2>/dev/null | grep Ready || echo NOT_READY")
 
-                    if echo "\$STATUS" | grep -q "Ready"; then
-                        echo "✅ k3s is ready : \$STATUS"
-                        break
-                    fi
+                            if echo "\$STATUS" | grep -q "Ready"; then
+                                echo "✅ k3s is ready : \$STATUS"
+                                break
+                        fi
 
-                    echo "Attempt \$i/30 — k3s not ready yet, waiting 10s..."
-                    sleep 10
+                        echo "Attempt \$i/30 — k3s not ready yet, waiting 10s..."
+                        sleep 10
 
-                    if [ \$i -eq 30 ]; then
-                        echo "❌ k3s did not become ready in time"
-                        exit 1
-                    fi
-                done
+                        if [ \$i -eq 30 ]; then
+                            echo "❌ k3s did not become ready in time"
+                            exit 1
+                        fi
+                    done
 
-                # Cleanup temp key
-                rm -f /tmp/ec2-key.pem
+                    # Cleanup temp key
+                    rm -f /tmp/ec2-key.pem
 
-                echo "✅ Infrastructure provisioned and k3s ready at : \$EC2_IP"
-            """
+                    echo "✅ Infrastructure provisioned and k3s ready at : \$EC2_IP"
+                """
         }
     }
     post {
