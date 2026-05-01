@@ -142,7 +142,7 @@ pipeline {
                             echo "Creating stack..."
                             aws cloudformation create-stack \\
                                 --stack-name my-djanjo-app-infra \\
-                                --capabilities CAPABILITY_NAMED_IAM \\
+                                --capabilities CAPABILITY_IAM \\
                                 --template-body file://cloudformation/infra-stack.yaml \\
                                 --parameters \\
                                     ParameterKey=ProjectName,ParameterValue=my-djanjo-app \\
